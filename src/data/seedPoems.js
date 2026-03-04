@@ -1,0 +1,32 @@
+module.exports = [
+  {
+    author: 'Elena Rodriguez',
+    title: 'Whispered Promises',
+    previewContent: 'In the quiet moments between heartbeats, I find your love written in the stars...',
+    fullContent: 'In the quiet moments between heartbeats, I find your love written in the stars...',
+    category: 'Love',
+    likes: 124,
+    source: 'seed',
+    isPublic: true,
+  },
+  {
+    author: 'Marcus Johnson',
+    title: "Revolution's Dawn",
+    previewContent: 'The streets echo with footsteps of change, voices rising like the morning sun...',
+    fullContent: 'The streets echo with footsteps of change, voices rising like the morning sun...',
+    category: 'Revolution',
+    likes: 201,
+    source: 'seed',
+    isPublic: true,
+  },
+  {
+    author: 'Sarah Chen',
+    title: "Autumn's Embrace",
+    previewContent: 'Golden leaves fall like whispered secrets as nature prepares for winter sleep...',
+    fullContent: 'Golden leaves fall like whispered secrets as nature prepares for winter sleep...',
+    category: 'Nature',
+    likes: 98,
+    source: 'seed',
+    isPublic: true,
+  },
+];
