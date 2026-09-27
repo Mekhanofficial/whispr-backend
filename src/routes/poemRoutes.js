@@ -1,5 +1,5 @@
 const express = require('express');
-const { requireAuth } = require('../middleware/auth');
+const { requireAuth, optionalAuth } = require('../middleware/auth');
 const poemController = require('../controllers/poemController');
 const engagementController = require('../controllers/engagementController');
 
@@ -12,6 +12,7 @@ router.post('/engagement/batch', requireAuth, engagementController.batchEngageme
 router.post('/:poemKey/like', requireAuth, engagementController.setLike);
 router.delete('/:poemKey/like', requireAuth, engagementController.setLike);
 router.get('/mine', requireAuth, poemController.listMyPoems);
+router.get('/:id/audio', optionalAuth, poemController.streamPoemAudio);
 router.get('/:id', poemController.getPoem);
 router.post('/', requireAuth, poemController.createPoem);
 router.patch('/:id', requireAuth, poemController.updatePoem);

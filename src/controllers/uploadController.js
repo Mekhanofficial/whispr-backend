@@ -1,11 +1,12 @@
 const path = require('path');
 const UploadAsset = require('../models/UploadAsset');
+const { rootUploadsDir } = require('../middleware/upload');
 const asyncHandler = require('../utils/asyncHandler');
 const ApiError = require('../utils/ApiError');
 
 function toUploadPayload(req, file) {
   const relativePath = path
-    .relative(path.resolve(process.cwd(), 'backend'), file.path)
+    .relative(path.dirname(rootUploadsDir), file.path)
     .replace(/\\/g, '/');
   const origin = `${req.protocol}://${req.get('host')}`;
   return {

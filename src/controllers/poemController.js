@@ -1,6 +1,9 @@
 const Poem = require('../models/Poem');
 const UploadAsset = require('../models/UploadAsset');
 const Activity = require('../models/Activity');
+const fs = require('fs');
+const path = require('path');
+const env = require('../config/env');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const { serializePoem } = require('../utils/serializers');
@@ -25,6 +28,21 @@ function assertPoemReadableBy(poem, userId) {
   if (isOnlyMePoem(poem) && String(poem.authorId) !== String(userId || '')) {
     throw new ApiError(403, 'Not allowed');
   }
+}
+
+const uploadsRoot = path.resolve(path.isAbsolute(env.uploadDir) ? env.uploadDir : path.resolve(__dirname, '..', '..', env.uploadDir));
+
+async function resolvePoemAudioAsset(poem) {
+  const audio = poem?.audio || {};
+  let asset = audio.assetId ? await UploadAsset.findById(audio.assetId) : null;
+  if (!asset && audio.url) {
+    const relativePath = String(audio.url).replace(/^https?:\/\/[^/]+\/?/i, '').replace(/^\/+/, '');
+    asset = await UploadAsset.findOne({ $or: [{ relativePath }, { url: audio.url }] });
+  }
+  if (!asset) return null;
+  const filePath = path.resolve(path.dirname(uploadsRoot), asset.relativePath || '');
+  if (!filePath.startsWith(`${uploadsRoot}${path.sep}`)) return null;
+  return { asset, filePath };
 }
 
 async function normalizeAudio(audio, userId) {
@@ -186,6 +204,36 @@ const getPoem = asyncHandler(async (req, res) => {
   res.json({ success: true, data: serializePoem(poem) });
 });
 
+const streamPoemAudio = asyncHandler(async (req, res) => {
+  const poem = await Poem.findById(req.params.id);
+  if (!poem) throw new ApiError(404, 'Poem not found');
+  if (isOnlyMePoem(poem) && !req.user) throw new ApiError(401, 'Authentication required');
+  assertPoemReadableBy(poem, req.user?._id);
+  const resolved = await resolvePoemAudioAsset(poem);
+  if (!resolved) throw new ApiError(404, 'Audio not found');
+  let stats;
+  try { stats = await fs.promises.stat(resolved.filePath); } catch (_) { throw new ApiError(404, 'Audio not found'); }
+  const total = stats.size;
+  const mimeType = resolved.asset.mimeType || 'application/octet-stream';
+  const range = String(req.headers.range || '');
+  res.setHeader('Accept-Ranges', 'bytes');
+  res.setHeader('Content-Type', mimeType);
+  if (!range) {
+    res.setHeader('Content-Length', total);
+    return fs.createReadStream(resolved.filePath).pipe(res);
+  }
+  const match = /^bytes=(\d*)-(\d*)$/.exec(range);
+  if (!match) { res.setHeader('Content-Range', `bytes */${total}`); return res.sendStatus(416); }
+  const start = match[1] ? Number(match[1]) : 0;
+  const end = match[2] ? Number(match[2]) : total - 1;
+  if (!Number.isFinite(start) || !Number.isFinite(end) || start > end || start >= total) { res.setHeader('Content-Range', `bytes */${total}`); return res.sendStatus(416); }
+  const safeEnd = Math.min(end, total - 1);
+  res.status(206);
+  res.setHeader('Content-Range', `bytes ${start}-${safeEnd}/${total}`);
+  res.setHeader('Content-Length', safeEnd - start + 1);
+  return fs.createReadStream(resolved.filePath, { start, end: safeEnd }).pipe(res);
+});
+
 const createPoem = asyncHandler(async (req, res) => {
   const { title, body, category, mood, promptId, audio, visibility, clientMutationId } = req.body || {};
   if (!title?.trim()) throw new ApiError(400, 'Title is required');
@@ -319,6 +367,7 @@ module.exports = {
   listPublicPoems,
   listMyPoems,
   getPoem,
+  streamPoemAudio,
   getDailyQuote,
   createPoem,
   updatePoem,

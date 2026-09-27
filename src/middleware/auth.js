@@ -30,6 +30,10 @@ async function requireAuth(req, res, next) {
 
 module.exports = {
   requireAuth,
+  optionalAuth(req, res, next) {
+    if (!req.headers.authorization) return next();
+    return requireAuth(req, res, next);
+  },
   requireAdmin(req, res, next) {
     const env = require('../config/env');
     if (req.user?.isAdmin || env.adminEmails.includes(String(req.user?.email || '').toLowerCase())) return next();
