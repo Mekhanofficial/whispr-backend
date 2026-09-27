@@ -17,6 +17,16 @@ function buildPreview(text = '') {
   return `${normalized.slice(0, 160)}...`;
 }
 
+function isOnlyMePoem(poem) {
+  return poem?.visibility === 'only_me' || poem?.isPublic === false;
+}
+
+function assertPoemReadableBy(poem, userId) {
+  if (isOnlyMePoem(poem) && String(poem.authorId) !== String(userId || '')) {
+    throw new ApiError(403, 'Not allowed');
+  }
+}
+
 async function normalizeAudio(audio, userId) {
   if (audio === undefined) return undefined;
   if (!audio || !audio.assetId) return { assetId: null, url: '', durationMs: 0 };
@@ -117,7 +127,7 @@ async function buildDailyQuotePayload() {
     }
 
     // Fallback to a real poem from the app database (not dummy seeds).
-    const fallbackPoem = await Poem.findOne({ isPublic: true, source: { $ne: 'seed' } })
+    const fallbackPoem = await Poem.findOne({ isPublic: true, visibility: { $ne: 'only_me' }, source: { $ne: 'seed' } })
       .sort({ createdAt: -1 })
       .lean();
 
@@ -149,7 +159,7 @@ const listPublicPoems = asyncHandler(async (req, res) => {
   const { category, q } = req.query || {};
   const page = Math.max(1, Number(req.query?.page) || 1);
   const limit = Math.min(50, Math.max(1, Number(req.query?.limit) || 20));
-  const filter = { isPublic: true, source: { $ne: 'seed' } };
+  const filter = { isPublic: true, visibility: { $ne: 'only_me' }, source: { $ne: 'seed' } };
   if (category && category !== 'All') {
     filter.category = category;
   }
@@ -172,9 +182,7 @@ const listMyPoems = asyncHandler(async (req, res) => {
 const getPoem = asyncHandler(async (req, res) => {
   const poem = await Poem.findById(req.params.id);
   if (!poem) throw new ApiError(404, 'Poem not found');
-  if (!poem.isPublic && String(poem.authorId) !== String(req.user?._id || '')) {
-    throw new ApiError(403, 'Not allowed');
-  }
+  assertPoemReadableBy(poem, req.user?._id);
   res.json({ success: true, data: serializePoem(poem) });
 });
 
@@ -245,8 +253,13 @@ const updatePoem = asyncHandler(async (req, res) => {
   if (mood !== undefined) poem.mood = String(mood || '').trim();
   if (promptId !== undefined) poem.promptId = promptId || null;
   if (audio !== undefined) poem.audio = await normalizeAudio(audio, req.user._id);
-  if (visibility !== undefined) { poem.visibility = visibility === 'only_me' ? 'only_me' : 'public'; poem.isPublic = poem.visibility === 'public'; }
-  if (isPublic !== undefined) poem.isPublic = Boolean(isPublic);
+  if (visibility !== undefined) {
+    poem.visibility = visibility === 'only_me' ? 'only_me' : 'public';
+    poem.isPublic = poem.visibility === 'public';
+  } else if (isPublic !== undefined) {
+    poem.isPublic = Boolean(isPublic);
+    poem.visibility = poem.isPublic ? 'public' : 'only_me';
+  }
 
   await poem.save();
   res.json({ success: true, data: serializePoem(poem) });
@@ -255,6 +268,7 @@ const updatePoem = asyncHandler(async (req, res) => {
 const deletePoem = asyncHandler(async (req, res) => {
   const poem = await Poem.findById(req.params.id);
   if (!poem) throw new ApiError(404, 'Poem not found');
+  assertPoemReadableBy(poem, req.user?._id);
   if (String(poem.authorId) !== String(req.user._id)) throw new ApiError(403, 'Not allowed');
   await poem.deleteOne();
   res.json({ success: true, message: 'Poem deleted' });
@@ -263,6 +277,7 @@ const deletePoem = asyncHandler(async (req, res) => {
 const toggleLike = asyncHandler(async (req, res) => {
   const poem = await Poem.findById(req.params.id);
   if (!poem) throw new ApiError(404, 'Poem not found');
+  assertPoemReadableBy(poem, req.user?._id);
   const userId = String(req.user._id);
   const liked = poem.likedBy.some((id) => String(id) === userId);
   if (liked) {
@@ -278,6 +293,9 @@ const toggleLike = asyncHandler(async (req, res) => {
 
 const setLike = asyncHandler(async (req, res) => {
   const userId = req.user._id;
+  const existing = await Poem.findById(req.params.id);
+  if (!existing) throw new ApiError(404, 'Poem not found');
+  assertPoemReadableBy(existing, userId);
   const filter = req.method === 'DELETE'
     ? { _id: req.params.id, likedBy: userId }
     : { _id: req.params.id, likedBy: { $ne: userId } };
@@ -286,7 +304,6 @@ const setLike = asyncHandler(async (req, res) => {
     : { $addToSet: { likedBy: userId }, $inc: { likes: 1 } };
   await Poem.updateOne(filter, update);
   const poem = await Poem.findById(req.params.id);
-  if (!poem) throw new ApiError(404, 'Poem not found');
   res.json({ success: true, data: {
     liked: poem.likedBy.some((id) => String(id) === String(userId)),
     likes: Math.max(0, Number(poem.likes || 0)),

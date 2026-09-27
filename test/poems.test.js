@@ -87,6 +87,29 @@ test('Only Me poem is persisted as non-public private writing', async () => {
   }
 });
 
+test('Only Me visibility cannot be overridden by a legacy isPublic update value', async () => {
+  const originalFind = Poem.findById;
+  const poem = {
+    authorId: 'author-id',
+    visibility: 'public',
+    isPublic: true,
+    async save() {},
+  };
+  Poem.findById = async () => poem;
+  try {
+    const result = await invoke(updatePoem, {
+      params: { id: 'poem-id' },
+      body: { visibility: 'only_me', isPublic: true },
+      user: { _id: 'author-id' },
+    });
+    assert.equal(result.status, 200);
+    assert.equal(poem.visibility, 'only_me');
+    assert.equal(poem.isPublic, false);
+  } finally {
+    Poem.findById = originalFind;
+  }
+});
+
 test('voice-reading metadata accepts only the owner audio upload', async () => {
   const originalFind = Poem.findOne;
   const originalCreate = Poem.create;
