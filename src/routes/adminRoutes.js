@@ -1,0 +1,15 @@
+const express = require('express');
+const { requireAdminAuth } = require('../middleware/adminAuth');
+const controller = require('../controllers/adminController');
+const privateController = require('../controllers/privateAccessAdminController');
+const router = express.Router();
+router.use(requireAdminAuth);
+router.get('/overview', controller.overview);
+router.get('/users', controller.users); router.get('/users/:userId', controller.userDetail); router.post('/users/:userId/suspend', controller.setSuspended); router.post('/users/:userId/unsuspend', controller.setSuspended);
+router.get('/private-access/pricing', privateController.getPricing); router.patch('/private-access/pricing', privateController.updatePricing); router.get('/private-access/summary', privateController.summary); router.get('/private-access/users', privateController.listUsers); router.patch('/private-access/users/:userId/eligibility', privateController.setEligibility); router.post('/private-access/users/:userId/activate', privateController.activateManually); router.post('/private-access/users/:userId/cancel', privateController.cancel); router.get('/private-access/payments', privateController.payments);
+router.get('/subscriptions', controller.subscriptions); router.get('/payments', controller.payments);
+router.get('/content/poems', controller.poems); router.get('/content/comments', controller.comments); router.patch('/content/:type/:id/moderation', controller.moderate);
+router.get('/reports', controller.reports); router.patch('/reports/:id', controller.updateReport);
+router.get('/announcements', controller.announcements); router.post('/announcements', controller.createAnnouncement); router.patch('/announcements/:id', controller.updateAnnouncement);
+router.get('/configuration', controller.configuration); router.patch('/configuration', controller.updateConfiguration); router.get('/audit', controller.audit); router.get('/settings', (_req, res) => res.json({ success: true, data: { session: 'jwt', passwordChange: 'configure ADMIN_PASSWORD_HASH server-side' } }));
+module.exports = router;

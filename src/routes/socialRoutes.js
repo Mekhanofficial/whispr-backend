@@ -8,6 +8,8 @@ router.use(requireAuth);
 
 router.get('/bookmarks', socialController.listBookmarks);
 router.post('/bookmarks/toggle', socialController.toggleBookmark);
+router.put('/bookmarks/:poemId', socialController.setBookmark);
+router.delete('/bookmarks/:poemId', socialController.setBookmark);
 
 router.get('/follows', socialController.listFollows);
 router.post('/follows/:userId', socialController.followUser);

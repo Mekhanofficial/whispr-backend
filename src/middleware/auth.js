@@ -18,6 +18,7 @@ async function requireAuth(req, res, next) {
     if (!user) {
       throw new ApiError(401, 'Invalid session');
     }
+    if (user.isSuspended) throw new ApiError(403, 'Account suspended');
 
     req.auth = { userId: String(user._id), token, decoded };
     req.user = user;
@@ -29,4 +30,9 @@ async function requireAuth(req, res, next) {
 
 module.exports = {
   requireAuth,
+  requireAdmin(req, res, next) {
+    const env = require('../config/env');
+    if (req.user?.isAdmin || env.adminEmails.includes(String(req.user?.email || '').toLowerCase())) return next();
+    return next(new ApiError(403, 'Administrator access required'));
+  },
 };

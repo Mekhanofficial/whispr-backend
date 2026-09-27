@@ -11,11 +11,14 @@ const poemSchema = new mongoose.Schema(
     likes: { type: Number, default: 0 },
     likedBy: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
     isPublic: { type: Boolean, default: true, index: true },
+    moderationStatus: { type: String, enum: ['visible', 'hidden'], default: 'visible', index: true },
     source: { type: String, enum: ['seed', 'user'], default: 'user' },
+    clientMutationId: { type: String, default: undefined },
   },
   { timestamps: true }
 );
 
 poemSchema.index({ createdAt: -1, isPublic: 1 });
+poemSchema.index({ authorId: 1, clientMutationId: 1 }, { unique: true, partialFilterExpression: { clientMutationId: { $type: 'string' } } });
 
 module.exports = mongoose.models.Poem || mongoose.model('Poem', poemSchema);

@@ -11,6 +11,7 @@ const {
   serializeMessage,
   serializeActivity,
 } = require('../utils/serializers');
+const { normalizePoemKey } = require('../utils/poemIdentity');
 
 function toThreadId(otherId) {
   return `thread_${otherId}`;
@@ -32,8 +33,7 @@ const listBookmarks = asyncHandler(async (req, res) => {
 
 const toggleBookmark = asyncHandler(async (req, res) => {
   const { poem, poemId } = req.body || {};
-  const normalizedPoemId = String(poemId || poem?.id || '');
-  if (!normalizedPoemId) throw new ApiError(400, 'poemId is required');
+  const normalizedPoemId = normalizePoemKey(poemId || poem?.canonicalKey || poem?.id);
 
   const existing = await Bookmark.findOne({ userId: req.user._id, poemId: normalizedPoemId });
   if (existing) {
@@ -82,6 +82,20 @@ const toggleBookmark = asyncHandler(async (req, res) => {
   res.json({ success: true, data: { bookmarked: true } });
 });
 
+const setBookmark = asyncHandler(async (req, res) => {
+  const poemId = normalizePoemKey(req.params.poemId);
+  if (req.method === 'DELETE') {
+    await Bookmark.deleteOne({ userId: req.user._id, poemId });
+    return res.json({ success: true, data: { bookmarked: false } });
+  }
+  const snapshot = req.body?.poem || { id: poemId };
+  try {
+    await Bookmark.updateOne({ userId: req.user._id, poemId },
+      { $setOnInsert: { userId: req.user._id, poemId, poemSnapshot: snapshot } }, { upsert: true });
+  } catch (error) { if (error?.code !== 11000) throw error; }
+  return res.json({ success: true, data: { bookmarked: true } });
+});
+
 const listFollows = asyncHandler(async (req, res) => {
   const follows = await Follow.find({ followerId: req.user._id }).sort({ createdAt: -1 });
   res.json({ success: true, data: follows.map((f) => f.followingId) });
@@ -105,27 +119,51 @@ const unfollowUser = asyncHandler(async (req, res) => {
 });
 
 const listComments = asyncHandler(async (req, res) => {
-  const comments = await Comment.find({ poemId: String(req.params.poemId) }).sort({ createdAt: 1 });
-  res.json({ success: true, data: comments.map(serializeComment) });
+  const page = Math.max(1, Number(req.query.page) || 1);
+  const limit = Math.min(50, Math.max(1, Number(req.query.limit) || 20));
+  const poemKey = normalizePoemKey(req.params.poemId);
+  const filter = { $or: [{ poemKey }, { poemId: poemKey }] };
+  const [comments, total] = await Promise.all([
+    Comment.find(filter).sort({ createdAt: 1 }).skip((page - 1) * limit).limit(limit),
+    Comment.countDocuments(filter),
+  ]);
+  res.json({ success: true, data: { comments: comments.map(serializeComment), total, page, limit, hasMore: page * limit < total } });
 });
 
 const addComment = asyncHandler(async (req, res) => {
-  const poemId = String(req.params.poemId || '');
+  const poemId = normalizePoemKey(req.params.poemId);
   const body = String(req.body?.body || '').trim();
   if (!poemId) throw new ApiError(400, 'poemId is required');
   if (!body) throw new ApiError(400, 'Comment body is required');
+  const clientMutationId = req.body?.clientMutationId;
+  if (clientMutationId !== undefined && !/^[A-Za-z0-9_-]{12,96}$/.test(String(clientMutationId))) {
+    throw new ApiError(400, 'Invalid client mutation ID');
+  }
+  if (clientMutationId) {
+    const existing = await Comment.findOne({ userId: req.user._id, clientMutationId });
+    if (existing) return res.json({ success: true, data: serializeComment(existing) });
+  }
 
   const authorId = req.body?.authorId || currentUserFrontendId(req.user);
   const authorName = req.user.profile?.name || req.user.fullName || 'You';
   const avatarUrl = req.user.profile?.avatarUrl || '';
-  const comment = await Comment.create({
+  let comment;
+  try { comment = await Comment.create({
     poemId,
+    poemKey: poemId,
     authorId,
     userId: req.user._id,
     authorName,
     avatarUrl,
     body,
-  });
+    ...(clientMutationId ? { clientMutationId } : {}),
+  }); } catch (error) {
+    if (error?.code === 11000 && clientMutationId) {
+      const existing = await Comment.findOne({ userId: req.user._id, clientMutationId });
+      if (existing) return res.json({ success: true, data: serializeComment(existing) });
+    }
+    throw error;
+  }
 
   await Activity.create({
     userId: req.user._id,
@@ -205,6 +243,7 @@ const addActivity = asyncHandler(async (req, res) => {
 module.exports = {
   listBookmarks,
   toggleBookmark,
+  setBookmark,
   listFollows,
   followUser,
   unfollowUser,

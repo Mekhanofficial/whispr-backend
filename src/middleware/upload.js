@@ -3,7 +3,14 @@ const path = require('path');
 const multer = require('multer');
 const env = require('../config/env');
 
-const rootUploadsDir = path.resolve(process.cwd(), 'backend', env.uploadDir);
+const rootUploadsDir = path.isAbsolute(env.uploadDir)
+  ? env.uploadDir
+  : path.resolve(__dirname, '..', '..', env.uploadDir);
+
+function isPrivateFolder(value) {
+  const folder = String(value || '').trim().replace(/[^a-zA-Z0-9_-]/g, '_').replace(/^_+/, '');
+  return /^(vault|private)(?:[_-]|$)/i.test(folder);
+}
 
 function ensureDir(dirPath) {
   if (!fs.existsSync(dirPath)) {
@@ -16,6 +23,10 @@ ensureDir(rootUploadsDir);
 const storage = multer.diskStorage({
   destination(req, file, cb) {
     const folder = req.body?.folder || 'misc';
+    if (isPrivateFolder(folder)) {
+      cb(new Error('Private vault files cannot use public uploads.'));
+      return;
+    }
     const safeFolder = String(folder).replace(/[^a-zA-Z0-9_-]/g, '_');
     const targetDir = path.join(rootUploadsDir, safeFolder);
     ensureDir(targetDir);
@@ -39,4 +50,5 @@ module.exports = {
   uploadSingle: upload.single('file'),
   uploadMany: upload.array('files', 12),
   rootUploadsDir,
+  isPrivateFolder,
 };

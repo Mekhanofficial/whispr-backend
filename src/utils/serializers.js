@@ -20,8 +20,13 @@ function toId(docOrId) {
 }
 
 function serializePoem(doc) {
+  const source = doc.source === 'poetrydb' ? 'poetrydb' : 'whispr';
+  const poemId = toId(doc);
   return {
-    id: toId(doc),
+    id: poemId,
+    poemId,
+    externalId: source === 'whispr' ? null : poemId,
+    canonicalKey: `${source}:${poemId}`,
     title: doc.title,
     previewContent: doc.previewContent,
     fullContent: doc.fullContent,
@@ -31,7 +36,7 @@ function serializePoem(doc) {
     likes: Number(doc.likes || 0),
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,
-    source: doc.source || 'user',
+    source,
   };
 }
 
@@ -51,11 +56,13 @@ function serializeComment(doc) {
   return {
     id: toId(doc),
     poemId: doc.poemId,
+    poemKey: doc.poemKey || doc.poemId,
     authorId: doc.authorId,
     authorName: doc.authorName,
     avatarUrl: doc.avatarUrl || '',
     body: doc.body,
     createdAt: doc.createdAt,
+    updatedAt: doc.updatedAt,
   };
 }
 

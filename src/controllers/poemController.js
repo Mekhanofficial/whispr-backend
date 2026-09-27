@@ -137,6 +137,8 @@ async function ensureSeedPoems() {
 const listPublicPoems = asyncHandler(async (req, res) => {
   await ensureSeedPoems();
   const { category, q } = req.query || {};
+  const page = Math.max(1, Number(req.query?.page) || 1);
+  const limit = Math.min(50, Math.max(1, Number(req.query?.limit) || 20));
   const filter = { isPublic: true, source: { $ne: 'seed' } };
   if (category && category !== 'All') {
     filter.category = category;
@@ -145,8 +147,11 @@ const listPublicPoems = asyncHandler(async (req, res) => {
     const regex = new RegExp(String(q).trim(), 'i');
     filter.$or = [{ title: regex }, { author: regex }, { previewContent: regex }, { fullContent: regex }];
   }
-  const poems = await Poem.find(filter).sort({ createdAt: -1 }).limit(500);
-  res.json({ success: true, data: poems.map(serializePoem) });
+  const [poems, total] = await Promise.all([
+    Poem.find(filter).sort({ createdAt: -1 }).skip((page - 1) * limit).limit(limit),
+    Poem.countDocuments(filter),
+  ]);
+  res.json({ success: true, data: { poems: poems.map(serializePoem), page, limit, total, hasMore: page * limit < total } });
 });
 
 const listMyPoems = asyncHandler(async (req, res) => {
@@ -164,11 +169,20 @@ const getPoem = asyncHandler(async (req, res) => {
 });
 
 const createPoem = asyncHandler(async (req, res) => {
-  const { title, body, category } = req.body || {};
+  const { title, body, category, clientMutationId } = req.body || {};
   if (!title?.trim()) throw new ApiError(400, 'Title is required');
   if (!body?.trim()) throw new ApiError(400, 'Poem body is required');
+  if (clientMutationId !== undefined && !/^[A-Za-z0-9_-]{12,96}$/.test(String(clientMutationId))) {
+    throw new ApiError(400, 'Invalid client mutation ID');
+  }
+  if (clientMutationId) {
+    const existing = await Poem.findOne({ authorId: req.user._id, clientMutationId });
+    if (existing) return res.json({ success: true, data: serializePoem(existing) });
+  }
 
-  const poem = await Poem.create({
+  let poem;
+  try {
+    poem = await Poem.create({
     authorId: req.user._id,
     author: req.user.profile?.name || req.user.fullName,
     title: title.trim(),
@@ -178,7 +192,15 @@ const createPoem = asyncHandler(async (req, res) => {
     isPublic: true,
     source: 'user',
     likes: 0,
-  });
+    ...(clientMutationId ? { clientMutationId } : {}),
+    });
+  } catch (error) {
+    if (error?.code === 11000 && clientMutationId) {
+      const existing = await Poem.findOne({ authorId: req.user._id, clientMutationId });
+      if (existing) return res.json({ success: true, data: serializePoem(existing) });
+    }
+    throw error;
+  }
 
   await Activity.create({
     userId: req.user._id,
@@ -235,6 +257,23 @@ const toggleLike = asyncHandler(async (req, res) => {
   res.json({ success: true, data: { liked: !liked, likes: poem.likes } });
 });
 
+const setLike = asyncHandler(async (req, res) => {
+  const userId = req.user._id;
+  const filter = req.method === 'DELETE'
+    ? { _id: req.params.id, likedBy: userId }
+    : { _id: req.params.id, likedBy: { $ne: userId } };
+  const update = req.method === 'DELETE'
+    ? { $pull: { likedBy: userId }, $inc: { likes: -1 } }
+    : { $addToSet: { likedBy: userId }, $inc: { likes: 1 } };
+  await Poem.updateOne(filter, update);
+  const poem = await Poem.findById(req.params.id);
+  if (!poem) throw new ApiError(404, 'Poem not found');
+  res.json({ success: true, data: {
+    liked: poem.likedBy.some((id) => String(id) === String(userId)),
+    likes: Math.max(0, Number(poem.likes || 0)),
+  } });
+});
+
 const getDailyQuote = asyncHandler(async (req, res) => {
   const payload = await buildDailyQuotePayload();
   res.json({ success: true, data: payload });
@@ -249,5 +288,6 @@ module.exports = {
   updatePoem,
   deletePoem,
   toggleLike,
+  setLike,
   ensureSeedPoems,
 };

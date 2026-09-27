@@ -1,6 +1,10 @@
 const VaultItem = require('../models/VaultItem');
 const VaultClone = require('../models/VaultClone');
 const asyncHandler = require('../utils/asyncHandler');
+const fs = require('fs/promises');
+const path = require('path');
+const UploadAsset = require('../models/UploadAsset');
+const { rootUploadsDir } = require('../middleware/upload');
 const ApiError = require('../utils/ApiError');
 const { serializeVaultItem } = require('../utils/serializers');
 
@@ -134,6 +138,80 @@ const updateVaultSettings = asyncHandler(async (req, res) => {
   res.json({ success: true, data: req.user.vaultSettings });
 });
 
+const vaultUploadFilter = (userId) => ({
+  userId,
+  folder: /^_*(vault|private)(?:[_-]|$)/i,
+});
+
+const getVaultInventory = asyncHandler(async (req, res) => {
+  const filter = vaultUploadFilter(req.user._id);
+  const [uploads, items, clones] = await Promise.all([
+    UploadAsset.find(filter).select('size folder').lean(),
+    VaultItem.countDocuments({ userId: req.user._id }),
+    VaultClone.countDocuments({ userId: req.user._id }),
+  ]);
+  res.json({ success: true, data: {
+    legacyUploadCount: uploads.length,
+    legacyUploadBytes: uploads.reduce((total, file) => total + Number(file.size || 0), 0),
+    metadataItemCount: items,
+    cloneRecordCount: clones,
+  } });
+});
+
+const deleteAllVaultData = asyncHandler(async (req, res) => {
+  const filter = vaultUploadFilter(req.user._id);
+  const uploads = await UploadAsset.find(filter).lean();
+  const legacyRoot = path.resolve(__dirname, '..', '..', 'backend', 'uploads');
+  const legacySrcRoot = path.resolve(__dirname, '..', 'uploads');
+  const roots = [...new Set([rootUploadsDir, legacyRoot, legacySrcRoot])];
+  const failures = [];
+  let remoteFilesDeleted = 0;
+  let remoteRecordsDeleted = 0;
+
+  for (const upload of uploads) {
+    const folder = String(upload.folder || '');
+    const filename = String(upload.filename || '');
+    if (!['vault_real', 'vault_decoy'].includes(folder) || path.basename(filename) !== filename) {
+      failures.push({ id: String(upload._id), message: 'Unsafe legacy upload path; manual review required' });
+      continue;
+    }
+    let failed = false;
+    for (const root of roots) {
+      const target = path.resolve(root, folder, filename);
+      if (!target.startsWith(path.resolve(root) + path.sep)) {
+        failed = true;
+        break;
+      }
+      try {
+        await fs.unlink(target);
+        remoteFilesDeleted++;
+      } catch (error) {
+        if (error.code !== 'ENOENT') {
+          failures.push({ id: String(upload._id), message: error.message });
+          failed = true;
+        }
+      }
+    }
+    if (!failed) {
+      await UploadAsset.deleteOne({ _id: upload._id, userId: req.user._id });
+      remoteRecordsDeleted++;
+    }
+  }
+
+  let metadataDeleted = 0;
+  let clonesDeleted = 0;
+  if (failures.length === 0) {
+    metadataDeleted = (await VaultItem.deleteMany({ userId: req.user._id })).deletedCount || 0;
+    clonesDeleted = (await VaultClone.deleteMany({ userId: req.user._id })).deletedCount || 0;
+    req.user.vaultSettings = {};
+    await req.user.save();
+  }
+  res.status(failures.length ? 207 : 200).json({
+    success: failures.length === 0,
+    data: { remoteFilesDeleted, remoteRecordsDeleted, metadataDeleted, clonesDeleted, failures },
+  });
+});
+
 module.exports = {
   listVaultItems,
   upsertVaultItem,
@@ -143,4 +221,6 @@ module.exports = {
   createVaultClone,
   removeVaultClone,
   updateVaultSettings,
+  getVaultInventory,
+  deleteAllVaultData,
 };

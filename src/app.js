@@ -12,7 +12,7 @@ const errorHandler = require('./middleware/errorHandler');
 const app = express();
 const uploadsDir = path.isAbsolute(env.uploadDir)
   ? env.uploadDir
-  : path.resolve(__dirname, '..', '..', env.uploadDir);
+  : path.resolve(__dirname, '..', env.uploadDir);
 
 app.use(helmet({ crossOriginResourcePolicy: false }));
 app.use(
@@ -21,7 +21,7 @@ app.use(
     credentials: false,
   })
 );
-app.use(express.json({ limit: '2mb' }));
+app.use(express.json({ limit: '2mb', verify: (req, _res, buffer) => { req.rawBody = Buffer.from(buffer); } }));
 app.use(express.urlencoded({ extended: true }));
 app.use(morgan(env.nodeEnv === 'production' ? 'combined' : 'dev'));
 app.use(
@@ -38,8 +38,20 @@ app.get('/health', (req, res) => {
   res.json({ success: true, status: 'ok', timestamp: new Date().toISOString() });
 });
 
-app.use('/uploads', express.static(uploadsDir));
+app.use('/uploads', (req, res, next) => {
+  let firstSegment;
+  try {
+    firstSegment = decodeURIComponent(req.path).split('/').filter(Boolean)[0] || '';
+  } catch {
+    return res.sendStatus(404);
+  }
+  if (/^(vault|private)(?:[_-]|$)/i.test(firstSegment.replace(/^_+/, ''))) {
+    return res.sendStatus(404);
+  }
+  return next();
+}, express.static(uploadsDir));
 app.use('/api', apiRoutes);
+
 
 app.use(notFound);
 app.use(errorHandler);

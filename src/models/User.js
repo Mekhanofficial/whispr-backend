@@ -64,6 +64,11 @@ const userSchema = new mongoose.Schema(
       stealthMode: { type: Boolean, default: false },
       decoyVaultEnabled: { type: Boolean, default: true },
     },
+    privateAccessEligible: { type: Boolean, default: false, index: true },
+    isAdmin: { type: Boolean, default: false, index: true },
+    isSuspended: { type: Boolean, default: false, index: true },
+    suspendedAt: { type: Date },
+    suspendedReason: { type: String, default: '' },
     lastLoginAt: { type: Date },
   },
   { timestamps: true }

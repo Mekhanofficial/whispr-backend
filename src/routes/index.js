@@ -7,6 +7,10 @@ const socialRoutes = require('./socialRoutes');
 const vaultRoutes = require('./vaultRoutes');
 const uploadRoutes = require('./uploadRoutes');
 const syncRoutes = require('./syncRoutes');
+const privateAccessRoutes = require('./privateAccessRoutes');
+const privateAccessAdminRoutes = require('./privateAccessAdminRoutes');
+const adminAuthRoutes = require('./adminAuthRoutes');
+const adminRoutes = require('./adminRoutes');
 
 const router = express.Router();
 
@@ -18,5 +22,9 @@ router.use('/social', socialRoutes);
 router.use('/vault', vaultRoutes);
 router.use('/uploads', uploadRoutes);
 router.use('/sync', syncRoutes);
+router.use('/private-access', privateAccessRoutes);
+router.use('/admin/private-access', privateAccessAdminRoutes);
+router.use('/admin/auth', adminAuthRoutes);
+router.use('/admin', adminRoutes);
 
 module.exports = router;
