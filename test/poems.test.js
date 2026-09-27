@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 process.env.JWT_SECRET = 'test-only-secret-with-more-than-thirty-two-characters';
 const Poem = require('../src/models/Poem');
 const Activity = require('../src/models/Activity');
+const UploadAsset = require('../src/models/UploadAsset');
 const { createPoem, updatePoem } = require('../src/controllers/poemController');
 
 function invoke(handler, req) {
@@ -63,5 +64,48 @@ test('published poem edit rejects a different owner', async () => {
     assert.equal(saveCount, 0);
   } finally {
     Poem.findById = originalFind;
+  }
+});
+
+test('Only Me poem is persisted as non-public private writing', async () => {
+  const originalFind = Poem.findOne;
+  const originalCreate = Poem.create;
+  const originalActivity = Activity.create;
+  let received;
+  Poem.findOne = async () => null;
+  Poem.create = async (input) => { received = input; return { ...input, _id: 'private-poem-id', createdAt: new Date(), updatedAt: new Date() }; };
+  Activity.create = async () => {};
+  try {
+    const result = await invoke(createPoem, { body: { title: 'Private page', body: 'This stays with me.', visibility: 'only_me', clientMutationId: 'private_entry_123' }, user: { _id: 'author-id', fullName: 'Author', profile: { name: 'Author' } } });
+    assert.equal(result.status, 201);
+    assert.equal(received.visibility, 'only_me');
+    assert.equal(received.isPublic, false);
+  } finally {
+    Poem.findOne = originalFind;
+    Poem.create = originalCreate;
+    Activity.create = originalActivity;
+  }
+});
+
+test('voice-reading metadata accepts only the owner audio upload', async () => {
+  const originalFind = Poem.findOne;
+  const originalCreate = Poem.create;
+  const originalAssetFind = UploadAsset.findOne;
+  const originalActivity = Activity.create;
+  let received;
+  Poem.findOne = async () => null;
+  UploadAsset.findOne = async () => ({ _id: 'audio-asset-id', userId: 'author-id', url: '/uploads/poem-audio/reading.m4a', mimeType: 'audio/mp4' });
+  Poem.create = async (input) => { received = input; return { ...input, _id: 'audio-poem-id', createdAt: new Date(), updatedAt: new Date() }; };
+  Activity.create = async () => {};
+  try {
+    const response = await invoke(createPoem, { body: { title: 'Read aloud', body: 'A voice follows the line.', audio: { assetId: 'audio-asset-id', durationMs: 4200 }, clientMutationId: 'audio_reading_123' }, user: { _id: 'author-id', fullName: 'Author', profile: { name: 'Author' } } });
+    assert.equal(response.status, 201);
+    assert.equal(received.audio.url, '/uploads/poem-audio/reading.m4a');
+    assert.equal(received.audio.durationMs, 4200);
+  } finally {
+    Poem.findOne = originalFind;
+    Poem.create = originalCreate;
+    UploadAsset.findOne = originalAssetFind;
+    Activity.create = originalActivity;
   }
 });

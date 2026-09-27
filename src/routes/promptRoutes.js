@@ -1,0 +1,2 @@
+const express = require('express'); const { requireAdminAuth } = require('../middleware/adminAuth'); const c = require('../controllers/promptController'); const router = express.Router();
+router.get('/today', c.today); router.get('/', c.list); router.get('/:id/poems', c.poems); router.get('/admin/list', requireAdminAuth, c.adminList); router.post('/admin', requireAdminAuth, c.create); router.patch('/admin/:id', requireAdminAuth, c.update); module.exports = router;

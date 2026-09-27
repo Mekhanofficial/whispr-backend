@@ -1,4 +1,5 @@
 const Poem = require('../models/Poem');
+const UploadAsset = require('../models/UploadAsset');
 const Activity = require('../models/Activity');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
@@ -14,6 +15,15 @@ function buildPreview(text = '') {
   const normalized = String(text).replace(/\s+/g, ' ').trim();
   if (normalized.length <= 160) return normalized;
   return `${normalized.slice(0, 160)}...`;
+}
+
+async function normalizeAudio(audio, userId) {
+  if (audio === undefined) return undefined;
+  if (!audio || !audio.assetId) return { assetId: null, url: '', durationMs: 0 };
+  const asset = await UploadAsset.findOne({ _id: audio.assetId, userId });
+  if (!asset) throw new ApiError(400, 'Audio upload was not found for this account');
+  if (!String(asset.mimeType || '').toLowerCase().startsWith('audio/')) throw new ApiError(400, 'The selected upload is not an audio file');
+  return { assetId: asset._id, url: asset.url, durationMs: Math.max(0, Number(audio.durationMs) || 0) };
 }
 
 function getUtcDateKey(date = new Date()) {
@@ -169,7 +179,7 @@ const getPoem = asyncHandler(async (req, res) => {
 });
 
 const createPoem = asyncHandler(async (req, res) => {
-  const { title, body, category, clientMutationId } = req.body || {};
+  const { title, body, category, mood, promptId, audio, visibility, clientMutationId } = req.body || {};
   if (!title?.trim()) throw new ApiError(400, 'Title is required');
   if (!body?.trim()) throw new ApiError(400, 'Poem body is required');
   if (clientMutationId !== undefined && !/^[A-Za-z0-9_-]{12,96}$/.test(String(clientMutationId))) {
@@ -180,6 +190,7 @@ const createPoem = asyncHandler(async (req, res) => {
     if (existing) return res.json({ success: true, data: serializePoem(existing) });
   }
 
+  const normalizedAudio = await normalizeAudio(audio, req.user._id);
   let poem;
   try {
     poem = await Poem.create({
@@ -189,7 +200,11 @@ const createPoem = asyncHandler(async (req, res) => {
     fullContent: body.trim(),
     previewContent: buildPreview(body),
     category: category?.trim() || 'All',
-    isPublic: true,
+    isPublic: visibility !== 'only_me',
+    visibility: visibility === 'only_me' ? 'only_me' : 'public',
+    mood: String(mood || '').trim(),
+    promptId: promptId || null,
+    ...(normalizedAudio !== undefined ? { audio: normalizedAudio } : {}),
     source: 'user',
     likes: 0,
     ...(clientMutationId ? { clientMutationId } : {}),
@@ -220,13 +235,17 @@ const updatePoem = asyncHandler(async (req, res) => {
   if (!poem) throw new ApiError(404, 'Poem not found');
   if (String(poem.authorId) !== String(req.user._id)) throw new ApiError(403, 'Not allowed');
 
-  const { title, body, category, isPublic } = req.body || {};
+  const { title, body, category, mood, promptId, audio, isPublic, visibility } = req.body || {};
   if (title !== undefined) poem.title = String(title).trim();
   if (body !== undefined) {
     poem.fullContent = String(body);
     poem.previewContent = buildPreview(body);
   }
   if (category !== undefined) poem.category = String(category || 'All');
+  if (mood !== undefined) poem.mood = String(mood || '').trim();
+  if (promptId !== undefined) poem.promptId = promptId || null;
+  if (audio !== undefined) poem.audio = await normalizeAudio(audio, req.user._id);
+  if (visibility !== undefined) { poem.visibility = visibility === 'only_me' ? 'only_me' : 'public'; poem.isPublic = poem.visibility === 'public'; }
   if (isPublic !== undefined) poem.isPublic = Boolean(isPublic);
 
   await poem.save();

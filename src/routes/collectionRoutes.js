@@ -1,0 +1,2 @@
+const express = require('express'); const { requireAuth } = require('../middleware/auth'); const c = require('../controllers/collectionController'); const router = express.Router();
+router.get('/public/:userId', c.listPublic); router.use(requireAuth); router.get('/', c.listMine); router.post('/', c.create); router.patch('/:id', c.update); router.delete('/:id', c.remove); router.put('/:id/poems', c.setPoem); module.exports = router;

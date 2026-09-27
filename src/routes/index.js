@@ -11,6 +11,8 @@ const privateAccessRoutes = require('./privateAccessRoutes');
 const privateAccessAdminRoutes = require('./privateAccessAdminRoutes');
 const adminAuthRoutes = require('./adminAuthRoutes');
 const adminRoutes = require('./adminRoutes');
+const promptRoutes = require('./promptRoutes');
+const collectionRoutes = require('./collectionRoutes');
 
 const router = express.Router();
 
@@ -26,5 +28,7 @@ router.use('/private-access', privateAccessRoutes);
 router.use('/admin/private-access', privateAccessAdminRoutes);
 router.use('/admin/auth', adminAuthRoutes);
 router.use('/admin', adminRoutes);
+router.use('/prompts', promptRoutes);
+router.use('/collections', collectionRoutes);
 
 module.exports = router;

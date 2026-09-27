@@ -46,9 +46,19 @@ const upload = multer({
   },
 });
 
+const poemAudioUpload = multer({
+  storage,
+  limits: { fileSize: Math.min(env.maxFileSizeBytes, 25 * 1024 * 1024) },
+  fileFilter(_req, file, cb) {
+    if (String(file.mimetype || '').toLowerCase().startsWith('audio/')) return cb(null, true);
+    return cb(new Error('Only audio files are supported for voice readings.'));
+  },
+});
+
 module.exports = {
   uploadSingle: upload.single('file'),
   uploadMany: upload.array('files', 12),
+  uploadPoemAudio: poemAudioUpload.single('file'),
   rootUploadsDir,
   isPrivateFolder,
 };
